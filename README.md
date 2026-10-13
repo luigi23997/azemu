@@ -26,6 +26,19 @@ Docker (with compose >= 2.24 and buildx), terraform and `az login` (only to prod
 azemu doctor
 ```
 
+### Windows
+
+Native Windows (PowerShell or cmd) needs Docker Desktop in Linux-containers mode (WSL2 backend, the default). Prerequisites in one go:
+
+```
+winget install Docker.DockerDesktop GoLang.Go Hashicorp.Terraform Microsoft.AzureCLI Git.Git
+```
+
+Then install as above from a new terminal; `azemu.exe` lands in `%USERPROFILE%\go\bin`. Running inside WSL2 also works: there it is plain Linux, keep the project in the Linux filesystem (`~/...`), not `/mnt/c`.
+
+- Keep app code in LF: a CRLF shell script copied into a Linux image fails with `\r: not found`. Add `* text=auto eol=lf` to the project's `.gitattributes`.
+- File permissions are not enforced: secrets under `.azemu/` are readable by your Windows user, like any other file in your profile.
+
 ## Quickstart
 
 ```

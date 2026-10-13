@@ -41,13 +41,13 @@ func TestGenerate(t *testing.T) {
 }
 
 func TestPrepare(t *testing.T) {
-	root := t.TempDir()
+	root, abs := t.TempDir(), t.TempDir()
 	cfg := &config.Config{Root: root, Apps: map[string]*config.App{
 		"z": {Path: "x", Kind: "zip", Runtime: "python:3.12"},
-		"d": {Path: "/abs/app", Kind: "docker"},
+		"d": {Path: abs, Kind: "docker"},
 	}}
 	ctx, df, err := Prepare(cfg, "d")
-	if err != nil || ctx != "/abs/app" || df != "/abs/app/Dockerfile" {
+	if err != nil || ctx != abs || df != filepath.Join(abs, "Dockerfile") {
 		t.Fatalf("docker: %q %q %v", ctx, df, err)
 	}
 	cfg.Apps["z"].Path = mustAbs(t, "testdata/py-req")

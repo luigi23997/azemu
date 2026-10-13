@@ -5,6 +5,7 @@ import (
 	"flag"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -17,6 +18,7 @@ var update = flag.Bool("update", false, "rewrite golden files")
 
 func TestCompose(t *testing.T) {
 	t.Setenv("HOME", "/home/u")
+	t.Setenv("USERPROFILE", "/home/u") // os.UserHomeDir on Windows
 	root := filepath.Join(t.TempDir(), "Demo.App")
 	zipDir, _ := filepath.Abs("../build/testdata/py-uv")
 	cfg := &config.Config{Root: root, Apps: map[string]*config.App{
@@ -35,8 +37,9 @@ func TestCompose(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got = bytes.ReplaceAll(got, []byte(root), []byte("<ROOT>"))
-	got = bytes.ReplaceAll(got, []byte(filepath.Dir(zipDir)), []byte("<BUILD_TESTDATA>"))
+	got = []byte(filepath.ToSlash(string(got))) // Windows host paths, so one golden file fits every OS
+	got = bytes.ReplaceAll(got, []byte(filepath.ToSlash(root)), []byte("<ROOT>"))
+	got = bytes.ReplaceAll(got, []byte(filepath.ToSlash(filepath.Dir(zipDir))), []byte("<BUILD_TESTDATA>"))
 	p := "testdata/compose.golden.yaml"
 	if *update {
 		os.MkdirAll("testdata", 0o755)
@@ -55,7 +58,7 @@ func TestComposeGraph(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, want := range []string{"- graph.microsoft.com", "- login.microsoftonline.com", "/p/demo/.azemu/graph:" + contract.GraphDir} {
-		if !strings.Contains(string(got), want) {
+		if !strings.Contains(filepath.ToSlash(string(got)), want) {
 			t.Errorf("compose lacks %q:\n%s", want, got)
 		}
 	}
@@ -78,7 +81,7 @@ func TestWriteEnvFile(t *testing.T) {
 	if string(b) != "A=\"q\" $HOME\nB=x=y z\n" {
 		t.Errorf("got %q", b)
 	}
-	if st, _ := os.Stat(p); st.Mode().Perm() != 0o600 {
+	if st, _ := os.Stat(p); runtime.GOOS != "windows" && st.Mode().Perm() != 0o600 { // Windows has no Unix modes
 		t.Errorf("mode %v", st.Mode())
 	}
 	if err := WriteEnvFile(p, map[string]string{"K": "a\nb"}); err == nil || !strings.Contains(err.Error(), "K") {
