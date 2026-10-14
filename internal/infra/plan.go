@@ -10,12 +10,12 @@ import (
 	"io"
 	"io/fs"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/luigi23997/azemu/internal/config"
+	"github.com/luigi23997/azemu/internal/host"
 )
 
 const cacheTTL = 24 * time.Hour
@@ -38,12 +38,12 @@ func Plan(ctx context.Context, cfg *config.Config, env string, refresh bool) (*M
 	}
 
 	run := func(stdout io.Writer, args ...string) error {
-		cmd := exec.CommandContext(ctx, "terraform", args...)
+		cmd := host.CommandContext(ctx, "terraform", args...)
 		cmd.Dir = dir
 		cmd.Env = append(os.Environ(), "TF_DATA_DIR="+tfData, "TF_IN_AUTOMATION=1")
 		var errBuf bytes.Buffer
 		cmd.Stdout, cmd.Stderr = stdout, &errBuf
-		if err := cmd.Run(); err != nil {
+		if err := host.Run(cmd); err != nil {
 			for _, l := range strings.Split(strings.TrimRight(errBuf.String(), "\n"), "\n") {
 				fmt.Fprintln(os.Stderr, "[terraform] "+l)
 			}

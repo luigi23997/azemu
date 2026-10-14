@@ -6,16 +6,14 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"net"
 	"os"
-	"os/exec"
-	"runtime"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/luigi23997/azemu/internal/contract"
+	"github.com/luigi23997/azemu/internal/host"
 	"github.com/luigi23997/azemu/internal/up"
 )
 
@@ -28,7 +26,7 @@ type check struct {
 
 // out runs a command and returns trimmed stdout (stderr in the error).
 func out(ctx context.Context, name string, args ...string) (string, error) {
-	b, err := exec.CommandContext(ctx, name, args...).CombinedOutput()
+	b, err := host.CombinedOutput(host.CommandContext(ctx, name, args...))
 	if err != nil {
 		return "", fmt.Errorf("%s: %w", name, err)
 	}
@@ -78,7 +76,7 @@ func runDoctor(args []string) error {
 			}
 			return out(ctx, "py", "--version")
 		}},
-		{"azemu CA trusted", runtime.GOOS != "linux", "run: azemu trust", func(ctx context.Context) (string, error) {
+		{"azemu CA trusted", host.GOOS() != "linux", "run: azemu trust", func(ctx context.Context) (string, error) {
 			if ok, hint := up.Trusted(); !ok {
 				return "", errors.New(hint)
 			}
@@ -160,7 +158,7 @@ func checkPorts(ctx context.Context) (string, error) {
 		ports = append(ports, p)
 	}
 	for _, p := range ports {
-		l, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", p))
+		l, err := host.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", p))
 		if err == nil {
 			l.Close()
 			continue

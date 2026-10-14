@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
-	"runtime"
 	"slices"
 	"strings"
 	"sync"
@@ -12,6 +11,7 @@ import (
 	"time"
 
 	"github.com/luigi23997/azemu/internal/config"
+	"github.com/luigi23997/azemu/internal/host"
 )
 
 func TestNativeEnv(t *testing.T) {
@@ -50,7 +50,7 @@ func TestBuildOutputs(t *testing.T) {
 // stop must end the whole tree: a grandchild still holding the output pipe would hold Wait for WaitDelay (5s).
 func TestProcStopEndsTree(t *testing.T) {
 	shell := "sleep 30 & sleep 30"
-	if runtime.GOOS == "windows" {
+	if host.GOOS() == "windows" {
 		shell = "start /b ping -n 30 127.0.0.1 & ping -n 30 127.0.0.1"
 	}
 	var out bytes.Buffer

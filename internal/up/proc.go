@@ -8,6 +8,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/luigi23997/azemu/internal/host"
 )
 
 // proc is a native child process (azurite, an app) with its whole process tree.
@@ -19,15 +21,15 @@ type proc struct {
 
 // startProc starts argv (or, when shell is set, that command line through the OS shell) in dir.
 func startProc(dir string, env []string, out io.Writer, shell string, argv ...string) (*proc, error) {
-	cmd := command(shell, argv)
+	cmd := host.NewProcessGroup(shell, argv)
 	cmd.Dir, cmd.Env = dir, env
 	cmd.Stdout, cmd.Stderr = out, out
 	cmd.WaitDelay = 5 * time.Second // a grandchild holding the output pipe must not block Wait
-	if err := cmd.Start(); err != nil {
+	if err := host.Start(cmd); err != nil {
 		return nil, err
 	}
 	p := &proc{cmd: cmd, done: make(chan struct{})}
-	go func() { cmd.Wait(); close(p.done) }()
+	go func() { host.Wait(cmd); close(p.done) }()
 	return p, nil
 }
 
@@ -46,13 +48,13 @@ func (p *proc) stop() {
 	if p.exited() {
 		return
 	}
-	terminate(p.cmd, false)
+	host.Terminate(p.cmd, false)
 	select {
 	case <-p.done:
 		return
 	case <-time.After(5 * time.Second):
 	}
-	terminate(p.cmd, true)
+	host.Terminate(p.cmd, true)
 	select {
 	case <-p.done:
 	case <-time.After(5 * time.Second):

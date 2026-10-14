@@ -15,10 +15,11 @@ import (
 	"testing"
 
 	"github.com/luigi23997/azemu/internal/contract"
+	"github.com/luigi23997/azemu/internal/host"
 )
 
 func freeTestPort(t *testing.T) int {
-	l, err := net.Listen("tcp", "127.0.0.1:0")
+	l, err := host.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -26,16 +27,31 @@ func freeTestPort(t *testing.T) int {
 	return l.Addr().(*net.TCPAddr).Port
 }
 
-// An app with HTTPS_PROXY set: emulated hosts reach their local upstream, other hosts reach the real one.
+// TestNativeForwardProxy tests an app with HTTPS_PROXY set: emulated hosts reach their local upstream, other hosts reach the real one.
 func TestNativeForwardProxy(t *testing.T) {
-	app := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	al, err := host.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	app := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(w, "app %s %s", r.Host, r.URL.Path)
 	}))
+	app.Listener = al
+	app.Start()
 	defer app.Close()
-	real := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	rl, err := host.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	real := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(w, "real %s", r.URL.Path)
 	}))
+	real.Listener = rl
+	real.StartTLS()
 	defer real.Close()
+	realPool := x509.NewCertPool()
+	realPool.AddCert(real.Certificate())
+	realTr := &http.Transport{DialContext: host.DialContext, TLSClientConfig: &tls.Config{RootCAs: realPool}}
 
 	dir := t.TempDir()
 	pp, ip := freeTestPort(t), freeTestPort(t)
@@ -44,7 +60,7 @@ func TestNativeForwardProxy(t *testing.T) {
 	cfg := contract.ProxyConfig{IdentityHeader: "h", Routes: map[string]string{"myapp.azurewebsites.net": app.URL}}
 	if _, err := Native(ctx, cfg, NativeOptions{
 		CADir: filepath.Join(dir, "ca"), CertsDir: filepath.Join(dir, "certs"), ProxyPort: pp, IdentityPort: ip,
-		Upstream: real.Client().Transport,
+		Upstream: realTr,
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -57,7 +73,7 @@ func TestNativeForwardProxy(t *testing.T) {
 	pool := x509.NewCertPool()
 	pool.AppendCertsFromPEM(bundle)
 	proxyURL, _ := url.Parse(fmt.Sprintf("http://127.0.0.1:%d", pp))
-	client := &http.Client{Transport: &http.Transport{Proxy: http.ProxyURL(proxyURL), TLSClientConfig: &tls.Config{RootCAs: pool}}}
+	client := &http.Client{Transport: &http.Transport{Proxy: http.ProxyURL(proxyURL), DialContext: host.DialContext, TLSClientConfig: &tls.Config{RootCAs: pool}}}
 	get := func(u string) string {
 		t.Helper()
 		resp, err := client.Get(u)
@@ -82,7 +98,8 @@ func TestNativeForwardProxy(t *testing.T) {
 
 	req, _ := http.NewRequest("GET", fmt.Sprintf("http://127.0.0.1:%d%s?resource=https://storage.azure.com", ip, contract.IdentityPath), nil)
 	req.Header.Set("X-IDENTITY-HEADER", "h")
-	resp, err := http.DefaultClient.Do(req)
+	idClient := &http.Client{Transport: &http.Transport{DialContext: host.DialContext}}
+	resp, err := idClient.Do(req)
 	if err != nil || resp.StatusCode != 200 {
 		t.Fatalf("identity: %v %v", resp, err)
 	}

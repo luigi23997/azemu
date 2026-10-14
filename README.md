@@ -64,6 +64,7 @@ azemu up --native
   `run:` also overrides `func start` for a zip app.
 - A change restarts the app; Ctrl-C stops everything (`status`, `logs` and `down` are for the Docker stack).
 - `azemu trust` is needed on Windows and macOS because the Functions host (.NET) only trusts the OS store there. It trusts a CA whose key is in `~/.azemu/ca`: anything that can read that file can mint certificates your user's programs accept.
+- When Defender ASR or application control blocks unsigned locally built `.exe` files, compile to WebAssembly and run via Node.js (`GOOS=js GOARCH=wasm go build -o azemu.wasm ./cmd/azemu` and `node cmd/azemu/azemu-wasm.js <command>`).
 
 Less faithful than Docker: apps run on your machine's Python/Node and OS, not Azure's Linux images; seed steps are skipped; a client that ignores `HTTPS_PROXY` (Node's `fetch` before Node 24, raw sockets) talks to the real Azure host and fails there, since it carries emulator keys and tokens.
 

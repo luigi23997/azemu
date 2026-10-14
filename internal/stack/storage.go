@@ -15,6 +15,7 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"github.com/luigi23997/azemu/internal/contract"
+	"github.com/luigi23997/azemu/internal/host"
 	"github.com/luigi23997/azemu/internal/infra"
 )
 
@@ -24,14 +25,14 @@ func CreateObjects(ctx context.Context, m *infra.Model, caPEM []byte) error {
 	return createObjects(ctx, m, caPEM, "127.0.0.1", contract.AzuriteBlobPort, contract.AzuriteQueuePort, contract.AzuriteTablePort)
 }
 
-func createObjects(ctx context.Context, m *infra.Model, caPEM []byte, host string, blobPort, queuePort, tablePort int) error {
+func createObjects(ctx context.Context, m *infra.Model, caPEM []byte, addrHost string, blobPort, queuePort, tablePort int) error {
 	pool := x509.NewCertPool()
 	if !pool.AppendCertsFromPEM(caPEM) {
 		return errors.New("storage: no certificate found in CA PEM")
 	}
-	hc := &http.Client{Transport: &http.Transport{TLSClientConfig: &tls.Config{RootCAs: pool}}}
+	hc := &http.Client{Transport: &http.Transport{DialContext: host.DialContext, TLSClientConfig: &tls.Config{RootCAs: pool}}}
 	opts := azcore.ClientOptions{Transport: hc}
-	url := func(port int, acct string) string { return fmt.Sprintf("https://%s:%d/%s", host, port, acct) }
+	url := func(port int, acct string) string { return fmt.Sprintf("https://%s:%d/%s", addrHost, port, acct) }
 
 	g, ctx := errgroup.WithContext(ctx)
 	for _, a := range m.StorageAccounts {

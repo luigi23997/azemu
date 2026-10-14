@@ -20,6 +20,7 @@ import (
 
 	"github.com/luigi23997/azemu/internal/contract"
 	"github.com/luigi23997/azemu/internal/graph"
+	"github.com/luigi23997/azemu/internal/host"
 )
 
 // NativeOptions configures Native.
@@ -51,10 +52,24 @@ func Native(ctx context.Context, cfg contract.ProxyConfig, o NativeOptions) (<-c
 		pool = x509.NewCertPool()
 	}
 	pool.AppendCertsFromPEM(c.pem)
-	tr := &http.Transport{TLSClientConfig: &tls.Config{RootCAs: pool}, MaxIdleConnsPerHost: 32, IdleConnTimeout: 90 * time.Second}
+	tr := &http.Transport{DialContext: host.DialContext, TLSClientConfig: &tls.Config{RootCAs: pool}, MaxIdleConnsPerHost: 32, IdleConnTimeout: 90 * time.Second}
 	up := o.Upstream
 	if up == nil {
-		up = &http.Transport{Proxy: http.ProxyFromEnvironment, ForceAttemptHTTP2: true, MaxIdleConnsPerHost: 8, IdleConnTimeout: 90 * time.Second}
+		var sysPool *x509.CertPool
+		if p, err := x509.SystemCertPool(); err == nil {
+			sysPool = p
+		} else {
+			sysPool = x509.NewCertPool()
+			sysPool.AppendCertsFromPEM(systemRoots())
+		}
+		up = &http.Transport{
+			Proxy:               http.ProxyFromEnvironment,
+			DialContext:         host.DialContext,
+			TLSClientConfig:     &tls.Config{RootCAs: sysPool},
+			ForceAttemptHTTP2:   true,
+			MaxIdleConnsPerHost: 8,
+			IdleConnTimeout:     90 * time.Second,
+		}
 	}
 
 	own := map[string]http.Handler{}
@@ -78,7 +93,7 @@ func Native(ctx context.Context, cfg contract.ProxyConfig, o NativeOptions) (<-c
 	errc := make(chan error, len(servers))
 	var started []*http.Server
 	for port, h := range servers {
-		l, err := net.Listen("tcp", "127.0.0.1:"+strconv.Itoa(port))
+		l, err := host.Listen("tcp", "127.0.0.1:"+strconv.Itoa(port))
 		if err != nil {
 			for _, s := range started {
 				s.Close()
@@ -165,7 +180,7 @@ func (p *peeked) Read(b []byte) (int, error) { return p.r.Read(b) }
 
 func tunnel(client net.Conn, addr string) {
 	defer client.Close()
-	up, err := net.DialTimeout("tcp", addr, 10*time.Second)
+	up, err := host.DialTimeout("tcp", addr, 10*time.Second)
 	if err != nil {
 		return
 	}

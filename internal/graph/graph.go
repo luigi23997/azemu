@@ -16,6 +16,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/luigi23997/azemu/internal/host"
 )
 
 const (
@@ -123,7 +125,7 @@ func (s *Source) client() *http.Client {
 	if s.Client != nil {
 		return s.Client
 	}
-	return http.DefaultClient
+	return &http.Client{Transport: &http.Transport{Proxy: http.ProxyFromEnvironment, DialContext: host.DialContext, ForceAttemptHTTP2: true}}
 }
 
 func (s *Source) Access(ctx context.Context) (string, error) {

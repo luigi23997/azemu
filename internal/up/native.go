@@ -9,12 +9,9 @@ import (
 	"io"
 	"log"
 	"maps"
-	"net"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -24,6 +21,7 @@ import (
 	"github.com/luigi23997/azemu/internal/build"
 	"github.com/luigi23997/azemu/internal/config"
 	"github.com/luigi23997/azemu/internal/contract"
+	"github.com/luigi23997/azemu/internal/host"
 	"github.com/luigi23997/azemu/internal/infra"
 	"github.com/luigi23997/azemu/internal/proxy"
 	"github.com/luigi23997/azemu/internal/stack"
@@ -255,7 +253,7 @@ func (n *native) start(ctx context.Context, k string, l *launch) error {
 	go func() {
 		<-p.done
 		if !p.stopping.Load() && ctx.Err() == nil {
-			fmt.Printf("[%s] exited (%s); it starts again on the next change\n", k, p.cmd.ProcessState)
+			fmt.Printf("[%s] exited (%s); it starts again on the next change\n", k, host.ExitState(p.cmd))
 		}
 	}()
 	return nil
@@ -384,11 +382,11 @@ var outDirRe = regexp.MustCompile(`"outDir"\s*:\s*"([^"]+)"`)
 
 // step runs one setup command, showing its output only when it fails.
 func step(ctx context.Context, dir string, env []string, argv ...string) error {
-	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
+	cmd := host.CommandContext(ctx, argv[0], argv[1:]...)
 	cmd.Dir, cmd.Env = dir, env
 	var out bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &out
-	if err := cmd.Run(); err != nil {
+	if err := host.Run(cmd); err != nil {
 		return fmt.Errorf("%s: %w\n%s", strings.Join(argv, " "), err, tail(out.String(), 25))
 	}
 	return nil
@@ -417,8 +415,10 @@ func exists(p string) bool { _, err := os.Stat(p); return err == nil }
 // pythonDeps keeps a virtualenv per app under .azemu/venv and returns the env that activates it.
 func pythonDeps(ctx context.Context, venv, dir, ver string) (map[string]string, error) {
 	bin := filepath.Join(venv, "bin")
-	if runtime.GOOS == "windows" {
+	pathSep := ":"
+	if host.GOOS() == "windows" {
 		bin = filepath.Join(venv, "Scripts")
+		pathSep = ";"
 	}
 	py := filepath.Join(bin, "python")
 	if !exists(py) && !exists(py+".exe") {
@@ -430,7 +430,7 @@ func pythonDeps(ctx context.Context, venv, dir, ver string) (map[string]string, 
 			return nil, err
 		}
 	}
-	env := map[string]string{"VIRTUAL_ENV": venv, "PATH": bin + string(os.PathListSeparator) + os.Getenv("PATH")}
+	env := map[string]string{"VIRTUAL_ENV": venv, "PATH": bin + pathSep + os.Getenv("PATH")}
 
 	req, inputs := filepath.Join(dir, "requirements.txt"), []string{filepath.Join(dir, "requirements.txt")}
 	uv := !exists(req) && exists(filepath.Join(dir, "uv.lock"))
@@ -457,11 +457,11 @@ func pythonDeps(ctx context.Context, venv, dir, ver string) (map[string]string, 
 // findPython returns the command of a Python for version ver (e.g. "3.12"); another version only warns.
 func findPython(ctx context.Context, ver string) ([]string, error) {
 	cands := [][]string{{"python" + ver}, {"python3"}, {"python"}}
-	if runtime.GOOS == "windows" {
+	if host.GOOS() == "windows" {
 		cands = [][]string{{"py", "-" + ver}, {"python"}, {"py"}}
 	}
 	for _, c := range cands {
-		out, err := exec.CommandContext(ctx, c[0], append(c[1:], "-c", "import sys;print('%d.%d'%sys.version_info[:2])")...).Output()
+		out, err := host.Output(host.CommandContext(ctx, c[0], append(c[1:], "-c", "import sys;print('%d.%d'%sys.version_info[:2])")...))
 		if err != nil {
 			continue
 		}
@@ -494,7 +494,7 @@ func nodeDeps(ctx context.Context, marker, dir string) error {
 
 func startAzurite(ctx context.Context, cfg *config.Config, m *infra.Model, certs string, out io.Writer) (*proc, error) {
 	addr := fmt.Sprintf("127.0.0.1:%d", contract.AzuriteBlobPort)
-	if c, err := net.DialTimeout("tcp", addr, time.Second); err == nil {
+	if c, err := host.DialTimeout("tcp", addr, time.Second); err == nil {
 		c.Close()
 		return nil, fmt.Errorf("%s is already in use: another Azurite, or the docker stack (`azemu down`)", addr)
 	}
@@ -508,7 +508,7 @@ func startAzurite(ctx context.Context, cfg *config.Config, m *infra.Model, certs
 	}
 	deadline := time.Now().Add(3 * time.Minute) // the first run downloads it
 	for {
-		if c, err := net.DialTimeout("tcp", addr, time.Second); err == nil {
+		if c, err := host.DialTimeout("tcp", addr, time.Second); err == nil {
 			c.Close()
 			return p, nil
 		}

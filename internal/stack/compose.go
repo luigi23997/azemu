@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -22,6 +21,7 @@ import (
 	"github.com/luigi23997/azemu/internal/build"
 	"github.com/luigi23997/azemu/internal/config"
 	"github.com/luigi23997/azemu/internal/contract"
+	"github.com/luigi23997/azemu/internal/host"
 	"github.com/luigi23997/azemu/internal/infra"
 )
 
@@ -273,10 +273,10 @@ func compose(ctx context.Context, cfg *config.Config, out io.Writer, args ...str
 
 func composeIn(ctx context.Context, cfg *config.Config, file string, out io.Writer, args ...string) error {
 	full := append([]string{"compose", "--progress", "plain", "-p", ProjectName(cfg), "-f", cfg.StatePath(file)}, args...)
-	cmd := exec.CommandContext(ctx, "docker", full...)
+	cmd := host.CommandContext(ctx, "docker", full...)
 	cmd.Dir = cfg.Root
 	cmd.Stdout, cmd.Stderr = out, out
-	if err := cmd.Run(); err != nil {
+	if err := host.Run(cmd); err != nil {
 		return fmt.Errorf("docker compose %s: %w", strings.Join(args, " "), err)
 	}
 	return nil

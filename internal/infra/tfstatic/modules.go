@@ -5,9 +5,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"github.com/luigi23997/azemu/internal/host"
 )
 
 // moduleSources maps remote (registry/git) module calls to directories using the modules.json
@@ -33,13 +34,20 @@ func (s *moduleSources) lookup(key, source string) (string, bool) {
 		return "", false
 	}
 	norm := func(x string) string { return strings.TrimPrefix(x, "registry.terraform.io/") }
+	cleanDir := func(d string) string {
+		if len(d) >= 3 && d[1] == ':' && (d[2] == '/' || d[2] == '\\') && filepath.Separator == '/' {
+			return filepath.ToSlash(d[2:])
+		}
+		return d
+	}
 	for _, m := range mj.Modules {
 		// a recorded source that differs from the config means the manifest is stale
 		if m.Key == key && (norm(m.Source) == norm(source) || s.inited) {
-			if filepath.IsAbs(m.Dir) {
-				return m.Dir, true
+			d := cleanDir(m.Dir)
+			if filepath.IsAbs(d) {
+				return d, true
 			}
-			return filepath.Join(s.root, m.Dir), true
+			return filepath.Join(s.root, d), true
 		}
 	}
 	return "", false
@@ -56,10 +64,10 @@ func (s *moduleSources) dir(key, source string) (string, error) {
 		if s.dataDir == "" {
 			return "", fmt.Errorf("remote module source %q needs Options.DataDir", source)
 		}
-		cmd := exec.CommandContext(s.ctx, "terraform", "init", "-backend=false", "-input=false", "-no-color")
+		cmd := host.CommandContext(s.ctx, "terraform", "init", "-backend=false", "-input=false", "-no-color")
 		cmd.Dir = s.root
 		cmd.Env = append(os.Environ(), "TF_DATA_DIR="+s.dataDir, "TF_IN_AUTOMATION=1")
-		if out, err := cmd.CombinedOutput(); err != nil {
+		if out, err := host.CombinedOutput(cmd); err != nil {
 			tail := strings.TrimSpace(string(out))
 			if len(tail) > 400 {
 				tail = tail[len(tail)-400:]

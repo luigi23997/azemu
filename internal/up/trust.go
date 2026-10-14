@@ -7,9 +7,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 
 	"github.com/luigi23997/azemu/internal/contract"
+	"github.com/luigi23997/azemu/internal/host"
 	"github.com/luigi23997/azemu/internal/proxy"
 )
 
@@ -22,18 +22,18 @@ func Trust() error {
 		return err
 	}
 	var cmd *exec.Cmd
-	switch runtime.GOOS {
+	switch host.GOOS() {
 	case "windows": // no admin needed; Windows asks for confirmation
-		cmd = exec.Command("certutil", "-user", "-addstore", "Root", path)
+		cmd = host.Command("certutil", "-user", "-addstore", "Root", path)
 	case "darwin": // macOS asks for your password
 		home, _ := os.UserHomeDir()
-		cmd = exec.Command("security", "add-trusted-cert", "-r", "trustRoot", "-k", filepath.Join(home, "Library", "Keychains", "login.keychain-db"), path)
+		cmd = host.Command("security", "add-trusted-cert", "-r", "trustRoot", "-k", filepath.Join(home, "Library", "Keychains", "login.keychain-db"), path)
 	default:
 		fmt.Println("nothing to do on Linux: native apps find the CA through SSL_CERT_FILE")
 		return nil
 	}
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
-	if err := cmd.Run(); err != nil {
+	if err := host.Run(cmd); err != nil {
 		return fmt.Errorf("adding %s to the trust store: %w", path, err)
 	}
 	fmt.Println("trusted:", path)
@@ -46,7 +46,7 @@ func Trusted() (bool, string) {
 	if err != nil {
 		return false, err.Error()
 	}
-	switch runtime.GOOS {
+	switch host.GOOS() {
 	case "windows":
 		b, _ := os.ReadFile(path)
 		blk, _ := pem.Decode(b)
@@ -57,11 +57,11 @@ func Trusted() (bool, string) {
 		if err != nil {
 			return false, err.Error()
 		}
-		if exec.Command("certutil", "-user", "-verifystore", "Root", c.SerialNumber.Text(16)).Run() == nil {
+		if host.Run(host.Command("certutil", "-user", "-verifystore", "Root", c.SerialNumber.Text(16))) == nil {
 			return true, ""
 		}
 	case "darwin":
-		if exec.Command("security", "verify-cert", "-c", path).Run() == nil {
+		if host.Run(host.Command("security", "verify-cert", "-c", path)) == nil {
 			return true, ""
 		}
 	default:

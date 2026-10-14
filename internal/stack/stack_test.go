@@ -5,12 +5,12 @@ import (
 	"flag"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 
 	"github.com/luigi23997/azemu/internal/config"
 	"github.com/luigi23997/azemu/internal/contract"
+	"github.com/luigi23997/azemu/internal/host"
 	"github.com/luigi23997/azemu/internal/infra"
 )
 
@@ -81,7 +81,7 @@ func TestWriteEnvFile(t *testing.T) {
 	if string(b) != "A=\"q\" $HOME\nB=x=y z\n" {
 		t.Errorf("got %q", b)
 	}
-	if st, _ := os.Stat(p); runtime.GOOS != "windows" && st.Mode().Perm() != 0o600 { // Windows has no Unix modes
+	if st, _ := os.Stat(p); host.GOOS() != "windows" && st.Mode().Perm() != 0o600 { // Windows has no Unix modes
 		t.Errorf("mode %v", st.Mode())
 	}
 	if err := WriteEnvFile(p, map[string]string{"K": "a\nb"}); err == nil || !strings.Contains(err.Error(), "K") {

@@ -41,14 +41,14 @@ func Run(ctx context.Context, targets []Target, rebuild func(ctx context.Context
 var alwaysSkip = map[string]bool{".git": true, "node_modules": true, ".venv": true, "__pycache__": true, ".azemu": true}
 
 type watcher struct {
-	w        *fsnotify.Watcher
+	w        backend
 	targets  []Target
 	ignore   []string // dockerignore path per target
 	matchers []*patternmatcher.PatternMatcher
 }
 
 func run(ctx context.Context, targets []Target, rebuild func(ctx context.Context, keys []string) error, ready chan<- struct{}) error {
-	fw, err := fsnotify.NewWatcher()
+	fw, err := newBackend()
 	if err != nil {
 		return err
 	}
@@ -93,9 +93,9 @@ func run(ctx context.Context, targets []Target, rebuild func(ctx context.Context
 				<-done
 			}
 			return nil
-		case ev := <-fw.Events:
+		case ev := <-fw.Events():
 			b.add(time.Now(), s.handle(ev)...)
-		case err := <-fw.Errors:
+		case err := <-fw.Errors():
 			Log("fsnotify: %v", err)
 		case <-tick:
 			fire()

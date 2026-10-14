@@ -1,14 +1,13 @@
-//go:build !windows
+//go:build !windows && !js
 
-package up
+package host
 
 import (
 	"os/exec"
 	"syscall"
 )
 
-// command runs in its own process group, so Ctrl-C reaches only azemu, which then stops the group.
-func command(shell string, argv []string) *exec.Cmd {
+func newProcessGroup(shell string, argv []string) *exec.Cmd {
 	if shell != "" {
 		argv = []string{"sh", "-c", shell}
 	}
@@ -17,7 +16,10 @@ func command(shell string, argv []string) *exec.Cmd {
 	return cmd
 }
 
-func terminate(cmd *exec.Cmd, force bool) {
+func terminateProc(cmd *exec.Cmd, force bool) {
+	if cmd == nil || cmd.Process == nil {
+		return
+	}
 	sig := syscall.SIGTERM
 	if force {
 		sig = syscall.SIGKILL

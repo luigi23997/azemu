@@ -26,6 +26,7 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"github.com/luigi23997/azemu/internal/contract"
+	"github.com/luigi23997/azemu/internal/host"
 	"github.com/luigi23997/azemu/internal/stack"
 )
 
@@ -307,24 +308,26 @@ func stripEntity(raw []byte) (out []byte, key string, err error) {
 
 // SourceClients opens the source account from a storage connection string (kept in memory only).
 func SourceClients(connStr string) (Clients, error) {
-	b, err := azblob.NewClientFromConnectionString(connStr, nil)
+	hc := &http.Client{Transport: &http.Transport{Proxy: http.ProxyFromEnvironment, DialContext: host.DialContext, ForceAttemptHTTP2: true}}
+	co := azcore.ClientOptions{Transport: hc}
+	b, err := azblob.NewClientFromConnectionString(connStr, &azblob.ClientOptions{ClientOptions: co})
 	if err != nil {
 		return Clients{}, err
 	}
-	t, err := aztables.NewServiceClientFromConnectionString(connStr, nil)
+	t, err := aztables.NewServiceClientFromConnectionString(connStr, &aztables.ClientOptions{ClientOptions: co})
 	return Clients{b, t}, err
 }
 
 // LocalClients opens the emulated account acct on Azurite at host (path-style https, SharedKey with the
 // well-known Azurite key), trusting caPEM.
-func LocalClients(acct string, caPEM []byte, host string, blobPort, tablePort int) (Clients, error) {
+func LocalClients(acct string, caPEM []byte, addrHost string, blobPort, tablePort int) (Clients, error) {
 	pool := x509.NewCertPool()
 	if !pool.AppendCertsFromPEM(caPEM) {
 		return Clients{}, errors.New("no certificate found in CA PEM")
 	}
-	hc := &http.Client{Transport: &http.Transport{TLSClientConfig: &tls.Config{RootCAs: pool}}}
+	hc := &http.Client{Transport: &http.Transport{DialContext: host.DialContext, TLSClientConfig: &tls.Config{RootCAs: pool}}}
 	co := azcore.ClientOptions{Transport: hc}
-	url := func(port int) string { return fmt.Sprintf("https://%s:%d/%s", host, port, acct) }
+	url := func(port int) string { return fmt.Sprintf("https://%s:%d/%s", addrHost, port, acct) }
 	bc, err := azblob.NewSharedKeyCredential(acct, contract.AzuriteKey)
 	if err != nil {
 		return Clients{}, err

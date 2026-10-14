@@ -15,7 +15,6 @@ import (
 	"maps"
 	"net"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -29,6 +28,7 @@ import (
 	"github.com/luigi23997/azemu/internal/config"
 	"github.com/luigi23997/azemu/internal/contract"
 	"github.com/luigi23997/azemu/internal/graph"
+	"github.com/luigi23997/azemu/internal/host"
 	"github.com/luigi23997/azemu/internal/infra"
 	"github.com/luigi23997/azemu/internal/proxy"
 	"github.com/luigi23997/azemu/internal/settings"
@@ -320,10 +320,10 @@ func tail(s string, n int) string {
 // ---- preflight ----
 
 func preflight(ctx context.Context, version, image string) error {
-	if err := exec.CommandContext(ctx, "docker", "version", "--format", "{{.Server.Version}}").Run(); err != nil {
+	if err := host.Run(host.CommandContext(ctx, "docker", "version", "--format", "{{.Server.Version}}")); err != nil {
 		return errors.New("docker is not reachable: start Docker Desktop (or dockerd) and retry (azemu doctor)")
 	}
-	if exec.CommandContext(ctx, "docker", "image", "inspect", image).Run() == nil {
+	if host.Run(host.CommandContext(ctx, "docker", "image", "inspect", image)) == nil {
 		return nil
 	}
 	if version != "dev" {
@@ -334,9 +334,9 @@ func preflight(ctx context.Context, version, image string) error {
 		return fmt.Errorf("proxy image %s not found: run `docker build -t %s <azemu repo>`", image, image)
 	}
 	fmt.Printf("building proxy image %s from %s\n", image, src)
-	cmd := exec.CommandContext(ctx, "docker", "build", "-q", "-t", image, src)
+	cmd := host.CommandContext(ctx, "docker", "build", "-q", "-t", image, src)
 	cmd.Stdout, cmd.Stderr = io.Discard, os.Stderr
-	return cmd.Run()
+	return host.Run(cmd)
 }
 
 // findSource looks upward from the working dir and the executable for the azemu repo (a dev build).
@@ -417,7 +417,7 @@ func assignPorts(path string, keys []string) (map[string]int, error) {
 // freePort returns want when it can be bound on localhost, else any free port.
 func freePort(want int) int {
 	for _, a := range []string{fmt.Sprintf("127.0.0.1:%d", want), "127.0.0.1:0"} {
-		if l, err := net.Listen("tcp", a); err == nil {
+		if l, err := host.Listen("tcp", a); err == nil {
 			defer l.Close()
 			return l.Addr().(*net.TCPAddr).Port
 		}
@@ -445,7 +445,7 @@ func principalFor(cfg *config.Config, as string) contract.Principal {
 		name = cfg.Identity.As
 	}
 	if name == "" {
-		b, _ := exec.Command("git", "config", "user.email").Output()
+		b, _ := host.Output(host.Command("git", "config", "user.email"))
 		name = strings.TrimSpace(string(b))
 	}
 	if name == "" {
@@ -625,10 +625,10 @@ func runSeedsIfNeeded(ctx context.Context, cfg *config.Config, header string, fo
 			}
 			args = append(args, s.Image, "sh", "-c", s.Run)
 			var out bytes.Buffer
-			cmd := exec.CommandContext(ctx, "docker", args...)
+			cmd := host.CommandContext(ctx, "docker", args...)
 			cmd.Stdout, cmd.Stderr = &out, &out
 			start := time.Now()
-			if err := cmd.Run(); err != nil {
+			if err := host.Run(cmd); err != nil {
 				return fmt.Errorf("seed %d (%s): %w\n%s", i+1, s.Image, err, tail(out.String(), 25))
 			}
 			fmt.Printf("[seed] %d done in %.1fs\n", i+1, time.Since(start).Seconds())

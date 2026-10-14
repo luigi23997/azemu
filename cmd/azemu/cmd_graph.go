@@ -12,6 +12,7 @@ import (
 
 	"github.com/luigi23997/azemu/internal/config"
 	"github.com/luigi23997/azemu/internal/graph"
+	"github.com/luigi23997/azemu/internal/host"
 )
 
 const graphUsage = `usage: azemu graph login|status [-f dir]
@@ -53,7 +54,8 @@ func runGraph(args []string) error {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
-	t, err := graph.Login(ctx, http.DefaultClient, graph.Authority, g.Tenant, g.ClientID, g.Scopes, os.Stdout)
+	hc := &http.Client{Transport: &http.Transport{Proxy: http.ProxyFromEnvironment, DialContext: host.DialContext, ForceAttemptHTTP2: true}}
+	t, err := graph.Login(ctx, hc, graph.Authority, g.Tenant, g.ClientID, g.Scopes, os.Stdout)
 	if err != nil {
 		return err
 	}

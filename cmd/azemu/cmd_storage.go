@@ -6,14 +6,13 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"net"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/luigi23997/azemu/internal/contract"
+	"github.com/luigi23997/azemu/internal/host"
 	"github.com/luigi23997/azemu/internal/pull"
 )
 
@@ -85,7 +84,7 @@ func storagePull(args []string) error {
 		return errors.New("local emulator not found: run azemu up first")
 	}
 	for _, p := range []int{contract.AzuriteBlobPort, contract.AzuriteTablePort} {
-		c, err := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", p), 2*time.Second)
+		c, err := host.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", p), 2*time.Second)
 		if err != nil {
 			return errors.New("local Azurite is not reachable on 127.0.0.1: run azemu up first")
 		}
@@ -130,9 +129,9 @@ func azAccountKey(ctx context.Context, acct, sub string) (string, error) {
 		args = append(args, "--subscription", sub)
 	}
 	var out, errb bytes.Buffer
-	cmd := exec.CommandContext(ctx, "az", args...)
+	cmd := host.CommandContext(ctx, "az", args...)
 	cmd.Stdout, cmd.Stderr = &out, &errb
-	if err := cmd.Run(); err != nil {
+	if err := host.Run(cmd); err != nil {
 		if strings.Contains(errb.String(), "AuthorizationFailed") {
 			return "", fmt.Errorf("az cannot list the keys of %s (AuthorizationFailed): this needs the listKeys permission "+
 				"(Contributor or Storage Account Key Operator); activate your PIM role or use data-plane access instead", acct)
