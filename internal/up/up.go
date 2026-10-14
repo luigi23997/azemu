@@ -161,7 +161,7 @@ func Run(ctx context.Context, o Options) error {
 			fmt.Fprintln(os.Stderr, "warning:", w)
 		}
 		warnMismatch(cfg, m, env)
-		pc := proxyConfig(cfg, m, env, ports, header, principalFor(cfg, o.As))
+		pc := proxyConfig(cfg, m, env, ports, header, principalFor(cfg, o.As), containerUpstream(cfg), contract.AzuriteService)
 		if err := prepareGraph(cfg); err != nil {
 			return err
 		}
@@ -470,15 +470,21 @@ func appPort(a *config.App) int {
 	return 80
 }
 
-// proxyConfig builds the routing table: app hostnames to containers, storage hostnames to azurite, one ingress per app.
-func proxyConfig(cfg *config.Config, m *infra.Model, env string, ports map[string]int, header string, pr contract.Principal) *contract.ProxyConfig {
+// containerUpstream is where an app listens inside the compose network.
+func containerUpstream(cfg *config.Config) func(string) string {
+	return func(k string) string { return fmt.Sprintf("http://%s:%d", k, appPort(cfg.Apps[k])) }
+}
+
+// proxyConfig builds the routing table: app hostnames to their upstream, storage hostnames to azurite, one ingress per app.
+func proxyConfig(cfg *config.Config, m *infra.Model, env string, ports map[string]int, header string, pr contract.Principal,
+	upstream func(key string) string, azuriteHost string) *contract.ProxyConfig {
 	pc := &contract.ProxyConfig{IdentityHeader: header, Routes: map[string]string{}, Principal: pr}
 	for _, k := range slices.Sorted(maps.Keys(cfg.Apps)) {
 		res := cfg.ResourceName(k, env)
 		if res == "" {
 			continue
 		}
-		up := fmt.Sprintf("http://%s:%d", k, appPort(cfg.Apps[k]))
+		up := upstream(k)
 		host := res + ".azurewebsites.net"
 		pc.Routes[host] = up
 		easy := false
@@ -498,7 +504,7 @@ func proxyConfig(cfg *config.Config, m *infra.Model, env string, ports map[strin
 	}
 	for a := range accts {
 		for svc, port := range map[string]int{"blob": contract.AzuriteBlobPort, "queue": contract.AzuriteQueuePort, "table": contract.AzuriteTablePort} {
-			pc.Routes[fmt.Sprintf("%s.%s.core.windows.net", a, svc)] = fmt.Sprintf("https://%s:%d", contract.AzuriteService, port)
+			pc.Routes[fmt.Sprintf("%s.%s.core.windows.net", a, svc)] = fmt.Sprintf("https://%s:%d", azuriteHost, port)
 		}
 	}
 	if cfg.Graph != nil {
@@ -661,6 +667,13 @@ func printStatus(ctx context.Context, cfg *config.Config, env string, ports map[
 			states[c.Service] = s
 		}
 	}
+	printTable(cfg, env, ports, states, results)
+	if p := ports[contract.LogsPortKey]; p > 0 {
+		fmt.Printf("\nLogs dashboard: http://127.0.0.1:%d\n", p)
+	}
+}
+
+func printTable(cfg *config.Config, env string, ports map[string]int, states map[string]string, results map[string]*buildResult) {
 	tw := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
 	fmt.Fprintln(tw, "APP\tAZURE HOST\tLOCAL URL\tSTATE\tBUILD")
 	for _, k := range slices.Sorted(maps.Keys(cfg.Apps)) {
@@ -681,9 +694,6 @@ func printStatus(ctx context.Context, cfg *config.Config, env string, ports map[
 		fmt.Fprintf(tw, "%s\t%s.azurewebsites.net\t%s\t%s\t%s\n", k, cfg.ResourceName(k, env), url, state, bt)
 	}
 	tw.Flush()
-	if p := ports[contract.LogsPortKey]; p > 0 {
-		fmt.Printf("\nLogs dashboard: http://127.0.0.1:%d\n", p)
-	}
 }
 
 // Status is `azemu status`.
@@ -766,9 +776,36 @@ func watchLoop(ctx context.Context, o Options, cfg *config.Config, m *infra.Mode
 		return nil
 	}
 
-	// ponytail: poll mtimes every 2s instead of a second fsnotify watcher on single files.
-	secrets := cfg.Abs(config.Expand(cfg.Secrets, env))
-	files := []string{secrets, yamlPath(o.File)}
+	go watchSettings(ctx, o, cfg, m, env, header, envs, &mu, func(ctx context.Context, changed map[string]map[string]string) error {
+		var restart []string
+		for _, k := range slices.Sorted(maps.Keys(changed)) {
+			if err := stack.WriteEnvFile(cfg.StatePath("env", k+".env"), changed[k]); err != nil {
+				return err
+			}
+			envs[k] = changed[k]
+			if builtSet[k] {
+				restart = append(restart, k)
+			}
+		}
+		if len(restart) == 0 {
+			return nil
+		}
+		fmt.Printf("[watch] settings changed, restarting %s\n", strings.Join(restart, ", "))
+		return stack.UpNoDeps(ctx, cfg, restart...)
+	})
+
+	fmt.Println("watching for changes (Ctrl-C stops watching; containers keep running, `azemu down` stops them)")
+	err := watch.Run(ctx, targets, rebuild)
+	fmt.Println("\nstopped watching; containers are still running. `azemu down` stops them.")
+	return err
+}
+
+// watchSettings polls the secrets file and azemu.yaml; when apps' resolved settings change it calls apply with the
+// changed ones, holding mu. apply records them in envs and restarts what runs. Returns when ctx is done.
+// ponytail: poll mtimes every 2s instead of a second fsnotify watcher on single files.
+func watchSettings(ctx context.Context, o Options, cfg *config.Config, m *infra.Model, env, header string,
+	envs map[string]map[string]string, mu *sync.Mutex, apply func(ctx context.Context, changed map[string]map[string]string) error) {
+	files := []string{cfg.Abs(config.Expand(cfg.Secrets, env)), yamlPath(o.File)}
 	stamp := func() (s []time.Time) {
 		for _, f := range files {
 			fi, err := os.Stat(f)
@@ -780,52 +817,37 @@ func watchLoop(ctx context.Context, o Options, cfg *config.Config, m *infra.Mode
 		}
 		return
 	}
-	go func() {
-		last := stamp()
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-time.After(2 * time.Second):
-			}
-			cur := stamp()
-			if slices.Equal(cur, last) {
-				continue
-			}
-			last = cur
-			newCfg, _, err := load(o.File, o.Env, o.Apps)
-			if err == nil {
-				var e map[string]map[string]string
-				if e, err = resolveAll(newCfg, m, env, header, o.KeepTelemetry); err == nil {
-					mu.Lock()
-					var changed []string
-					for k, v := range e {
-						if !maps.Equal(v, envs[k]) {
-							if err = stack.WriteEnvFile(cfg.StatePath("env", k+".env"), v); err != nil {
-								break
-							}
-							envs[k] = v
-							if builtSet[k] {
-								changed = append(changed, k)
-							}
-						}
+	last := stamp()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(2 * time.Second):
+		}
+		cur := stamp()
+		if slices.Equal(cur, last) {
+			continue
+		}
+		last = cur
+		newCfg, _, err := load(o.File, o.Env, o.Apps)
+		if err == nil {
+			var e map[string]map[string]string
+			if e, err = resolveAll(newCfg, m, env, header, o.KeepTelemetry); err == nil {
+				mu.Lock()
+				changed := map[string]map[string]string{}
+				for k, v := range e {
+					if !maps.Equal(v, envs[k]) {
+						changed[k] = v
 					}
-					slices.Sort(changed)
-					if err == nil && len(changed) > 0 {
-						fmt.Printf("[watch] settings changed, restarting %s\n", strings.Join(changed, ", "))
-						err = stack.UpNoDeps(ctx, cfg, changed...)
-					}
-					mu.Unlock()
 				}
-			}
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "[watch] settings: %v\n", err)
+				if len(changed) > 0 {
+					err = apply(ctx, changed)
+				}
+				mu.Unlock()
 			}
 		}
-	}()
-
-	fmt.Println("watching for changes (Ctrl-C stops watching; containers keep running, `azemu down` stops them)")
-	err := watch.Run(ctx, targets, rebuild)
-	fmt.Println("\nstopped watching; containers are still running. `azemu down` stops them.")
-	return err
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "[watch] settings: %v\n", err)
+		}
+	}
 }

@@ -17,9 +17,10 @@ import (
 
 // Target is one watched app.
 type Target struct {
-	Key        string // app key
-	Dir        string // build context dir (absolute)
-	Dockerfile string // absolute; its dockerignore (<Dockerfile>.dockerignore or <Dir>/.dockerignore) filters events
+	Key        string   // app key
+	Dir        string   // build context dir (absolute)
+	Dockerfile string   // absolute; its dockerignore (<Dockerfile>.dockerignore or <Dir>/.dockerignore) filters events
+	Ignore     []string // extra dockerignore patterns, e.g. build output written into Dir by a native build
 }
 
 // Quiet is the debounce period: a batch fires after this long without new events.
@@ -108,14 +109,16 @@ func run(ctx context.Context, targets []Target, rebuild func(ctx context.Context
 // load (re)reads target i's dockerignore; a missing or bad file means nothing is ignored.
 func (s *watcher) load(i int) {
 	s.matchers[i] = nil
-	f, err := os.Open(s.ignore[i])
-	if err != nil {
-		return
+	pats := s.targets[i].Ignore
+	if f, err := os.Open(s.ignore[i]); err == nil {
+		p, err := ignorefile.ReadAll(f)
+		f.Close()
+		if err != nil {
+			Log("%s: %v", s.ignore[i], err)
+		}
+		pats = append(p, pats...)
 	}
-	defer f.Close()
-	pats, err := ignorefile.ReadAll(f)
-	if err != nil {
-		Log("%s: %v", s.ignore[i], err)
+	if len(pats) == 0 {
 		return
 	}
 	if m, err := patternmatcher.New(pats); err == nil {

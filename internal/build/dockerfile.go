@@ -90,7 +90,7 @@ func nodeDockerfile(b *bytes.Buffer, dir, ver string) {
 	if exists(dir, "package-lock.json") {
 		install = "npm ci"
 	}
-	build := hasBuildScript(dir)
+	build := HasBuildScript(dir)
 	if !build {
 		install += " --omit=dev"
 	}
@@ -101,7 +101,8 @@ func nodeDockerfile(b *bytes.Buffer, dir, ver string) {
 	}
 }
 
-func hasBuildScript(dir string) bool {
+// HasBuildScript reports whether package.json in dir has a build script.
+func HasBuildScript(dir string) bool {
 	// ponytail: substring check on package.json instead of parsing; a "build" key anywhere counts.
 	b, err := os.ReadFile(filepath.Join(dir, "package.json"))
 	return err == nil && bytes.Contains(b, []byte(`"build"`))

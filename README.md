@@ -39,6 +39,34 @@ Then install as above from a new terminal; `azemu.exe` lands in `%USERPROFILE%\g
 - Keep app code in LF: a CRLF shell script copied into a Linux image fails with `\r: not found`. Add `* text=auto eol=lf` to the project's `.gitattributes`.
 - File permissions are not enforced: secrets under `.azemu/` are readable by your Windows user, like any other file in your profile.
 
+### Without Docker (`--native`)
+
+For machines that cannot run containers, such as an Azure Virtual Desktop without nested virtualization: `azemu up --native` runs everything as plain processes, no admin rights needed.
+
+```
+npm i -g azure-functions-core-tools@4    # needs Node.js 22+; plus the Python version of your apps
+azemu doctor --native
+azemu trust                              # once: Windows asks to confirm adding the azemu CA to your user's roots
+azemu up --native
+```
+
+- The proxy runs inside azemu and every app gets `HTTPS_PROXY` pointing at it: emulated hostnames (`*.azurewebsites.net`, the storage accounts, Graph) are answered locally, everything else is forwarded to the real host (through your own `HTTPS_PROXY`, if you have one). Ingress ports, Easy Auth headers and managed identity work as with Docker.
+- Azurite runs through `npx` (downloaded on first run), data in `.azemu/azurite`.
+- Zip apps run with `func start`: Python apps get a virtualenv in `.azemu/venv/<app>` (`pip install -r requirements.txt`, or `uv export` for a `uv.lock` project), Node apps get `npm ci` and `npm run build`. Docker apps need the command that starts them, listening on `{port}` (also in `$PORT`):
+
+  ```yaml
+  apps:
+    web-backend:
+      kind: docker
+      run: "python -m uvicorn main:app --host 127.0.0.1 --port {port}"
+  ```
+
+  `run:` also overrides `func start` for a zip app.
+- A change restarts the app; Ctrl-C stops everything (`status`, `logs` and `down` are for the Docker stack).
+- `azemu trust` is needed on Windows and macOS because the Functions host (.NET) only trusts the OS store there. It trusts a CA whose key is in `~/.azemu/ca`: anything that can read that file can mint certificates your user's programs accept.
+
+Less faithful than Docker: apps run on your machine's Python/Node and OS, not Azure's Linux images; seed steps are skipped; a client that ignores `HTTPS_PROXY` (Node's `fetch` before Node 24, raw sockets) talks to the real Azure host and fails there, since it carries emulator keys and tokens.
+
 ## Quickstart
 
 ```

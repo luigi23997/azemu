@@ -156,13 +156,9 @@ func (c *ca) getCertificate(h *tls.ClientHelloInfo) (*tls.Certificate, error) {
 	return &pair, nil
 }
 
-// writeCerts publishes the shared-volume files: ca.pem, bundle.pem (systemBundle + CA), azurite(.pem|-key.pem).
+// writeCerts publishes the shared-volume files: ca.pem, bundle.pem (sys roots + CA), azurite(.pem|-key.pem).
 // All world-readable: containers run as various users.
-func (c *ca) writeCerts(dir, systemBundle string) error {
-	sys, err := os.ReadFile(systemBundle)
-	if err != nil {
-		return err
-	}
+func (c *ca) writeCerts(dir string, sys []byte) error {
 	hosts := []string{"azurite", "localhost", "127.0.0.1"}
 	for _, svc := range []string{"blob", "queue", "table"} {
 		hosts = append(hosts, "*."+svc+".core.windows.net")
@@ -190,6 +186,9 @@ func (c *ca) writeCerts(dir, systemBundle string) error {
 
 func writeReadable(path string, data []byte) error {
 	tmp := path + ".tmp"
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
 	if err := os.WriteFile(tmp, data, 0o644); err != nil {
 		return err
 	}

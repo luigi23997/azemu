@@ -35,8 +35,8 @@ const graphMarker = "azemu" // claim set to "graph" in the fake token
 
 var clientCredsPath = regexp.MustCompile(`^/[^/]+/oauth2(/v2\.0)?/token$`)
 
-func newGraphGate(id *identity, readOnly bool, tokenFile string) *graphGate {
-	tr := realTransport()
+// newGraphGate reaches the real Entra and Graph through tr.
+func newGraphGate(id *identity, readOnly bool, tokenFile string, tr http.RoundTripper) *graphGate {
 	mk := func(host string) http.Handler { return newProxy(&url.URL{Scheme: "https", Host: host}, "", tr, nil) }
 	return &graphGate{id: id, readOnly: readOnly, src: &graph.Source{Path: tokenFile},
 		entra: mk(contract.LoginHost), graph: mk(contract.GraphHost)}

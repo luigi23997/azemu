@@ -38,7 +38,7 @@ func TestProxyConfigRoutes(t *testing.T) {
 		Apps:            []infra.App{{Name: "app-web", EasyAuth: true}, {Name: "func-x", HostStorage: "stfn"}},
 		StorageAccounts: []infra.StorageAccount{{Name: "stdata"}},
 	}
-	pc := proxyConfig(cfg, m, "dev", map[string]int{"web": 7002, "fn": 7001}, "h", contract.Principal{Name: "a@b.c"})
+	pc := proxyConfig(cfg, m, "dev", map[string]int{"web": 7002, "fn": 7001}, "h", contract.Principal{Name: "a@b.c"}, containerUpstream(cfg), contract.AzuriteService)
 	want := map[string]string{
 		"app-web.azurewebsites.net":    "http://web:8000",
 		"func-x.azurewebsites.net":     "http://fn:80",

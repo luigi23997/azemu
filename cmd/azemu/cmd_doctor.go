@@ -4,16 +4,19 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"flag"
 	"fmt"
 	"net"
 	"os"
 	"os/exec"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/luigi23997/azemu/internal/contract"
+	"github.com/luigi23997/azemu/internal/up"
 )
 
 type check struct {
@@ -33,7 +36,12 @@ func out(ctx context.Context, name string, args ...string) (string, error) {
 }
 
 func runDoctor(args []string) error {
-	checks := []check{
+	fs := flag.NewFlagSet("doctor", flag.ContinueOnError)
+	native := fs.Bool("native", false, "check the prerequisites of up --native instead of docker")
+	if _, err := parseFlags(fs, args); err != nil {
+		return err
+	}
+	docker := []check{
 		{"docker daemon", true, "start Docker Desktop / dockerd", func(ctx context.Context) (string, error) {
 			return out(ctx, "docker", "version", "--format", "{{.Server.Version}}")
 		}},
@@ -56,6 +64,32 @@ func runDoctor(args []string) error {
 		{"docker buildx", true, "install the docker buildx plugin", func(ctx context.Context) (string, error) {
 			return out(ctx, "docker", "buildx", "version")
 		}},
+	}
+	nativeChecks := []check{
+		{"func (Functions Core Tools)", true, "npm i -g azure-functions-core-tools@4 (no admin needed)", func(ctx context.Context) (string, error) {
+			return out(ctx, "func", "--version")
+		}},
+		{"npx (Node.js, for Azurite)", true, "install Node.js 22+", func(ctx context.Context) (string, error) {
+			return out(ctx, "npx", "--version")
+		}},
+		{"python (python apps only)", false, "install the Python version of your apps", func(ctx context.Context) (string, error) {
+			if v, err := out(ctx, "python", "--version"); err == nil {
+				return v, nil
+			}
+			return out(ctx, "py", "--version")
+		}},
+		{"azemu CA trusted", runtime.GOOS != "linux", "run: azemu trust", func(ctx context.Context) (string, error) {
+			if ok, hint := up.Trusted(); !ok {
+				return "", errors.New(hint)
+			}
+			return "yes", nil
+		}},
+	}
+	checks := docker
+	if *native {
+		checks = nativeChecks
+	}
+	checks = append(checks, []check{
 		{"terraform", true, "install terraform (https://developer.hashicorp.com/terraform/install)", func(ctx context.Context) (string, error) {
 			j, err := out(ctx, "terraform", "version", "-json")
 			var v struct {
@@ -82,7 +116,7 @@ func runDoctor(args []string) error {
 			f.Close()
 			return d, os.Remove(f.Name())
 		}},
-	}
+	}...)
 
 	errs := make([]error, len(checks))
 	details := make([]string, len(checks))

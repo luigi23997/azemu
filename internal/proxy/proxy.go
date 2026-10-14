@@ -43,7 +43,11 @@ func Run(configPath string) error {
 		c.noSNI = append(c.noSNI, h)
 	}
 	sort.Strings(c.noSNI)
-	if err := c.writeCerts(contract.CertsDir, systemBundle); err != nil {
+	sys, err := os.ReadFile(systemBundle)
+	if err != nil {
+		return err
+	}
+	if err := c.writeCerts(contract.CertsDir, sys); err != nil {
 		return err
 	}
 	id, err := newIdentity(cfg.IdentityHeader)
@@ -59,7 +63,7 @@ func Run(configPath string) error {
 
 	own := map[string]http.Handler{} // hosts the proxy answers itself instead of forwarding to a container
 	if cfg.Graph != nil {
-		g := newGraphGate(id, cfg.Graph.ReadOnly, filepath.Join(contract.GraphDir, graph.TokenFile))
+		g := newGraphGate(id, cfg.Graph.ReadOnly, filepath.Join(contract.GraphDir, graph.TokenFile), realTransport())
 		own[contract.LoginHost], own[contract.GraphHost] = g.loginHandler(), g.graphHandler()
 	}
 
@@ -74,7 +78,7 @@ func Run(configPath string) error {
 	go serve(&http.Server{Addr: ":" + strconv.Itoa(contract.IdentityPort), Handler: id.handler()}, false)
 	go serve(&http.Server{
 		Addr:      ":" + strconv.Itoa(contract.ProxyTLSPort),
-		Handler:   logged(routeHandler(cfg.Routes, tr, own)),
+		Handler:   logged(routeHandler(cfg.Routes, tr, own, nil)),
 		TLSConfig: &tls.Config{GetCertificate: c.getCertificate},
 	}, true)
 	for _, ing := range cfg.Ingress {
@@ -109,7 +113,8 @@ func newProxy(target *url.URL, host string, tr http.RoundTripper, edit func(*htt
 	}
 }
 
-func routeHandler(routes map[string]string, tr http.RoundTripper, own map[string]http.Handler) http.Handler {
+// routeHandler sends each request to the upstream of its host; unknown hosts go to fallback (nil: 502).
+func routeHandler(routes map[string]string, tr http.RoundTripper, own map[string]http.Handler, fallback http.Handler) http.Handler {
 	proxies := map[string]http.Handler{}
 	for host, up := range routes {
 		if u, err := url.Parse(up); err == nil {
@@ -125,6 +130,9 @@ func routeHandler(routes map[string]string, tr http.RoundTripper, own map[string
 			host = h
 		}
 		p := proxies[strings.ToLower(host)]
+		if p == nil {
+			p = fallback
+		}
 		if p == nil {
 			http.Error(w, "azemu proxy: no route for host "+host, http.StatusBadGateway)
 			return

@@ -57,6 +57,9 @@ type App struct {
 	Port       int               `yaml:"port,omitempty"`       // container port; default 80
 	Platform   string            `yaml:"platform,omitempty"`   // e.g. linux/amd64; default native
 	Env        map[string]string `yaml:"env,omitempty"`        // final overrides
+	// Run starts the app in native mode (`up --native`, no containers), from Path, through the shell; {port} is the
+	// port to listen on (also in $PORT). Required for docker apps there; zip apps default to `func start --port {port}`.
+	Run string `yaml:"run,omitempty"`
 }
 
 type Seed struct {

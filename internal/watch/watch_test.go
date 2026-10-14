@@ -137,6 +137,17 @@ func TestIgnore(t *testing.T) {
 	h.expect(t, "app")
 }
 
+func TestExtraIgnore(t *testing.T) {
+	h := start(t, "", func(dir string) []Target {
+		os.MkdirAll(filepath.Join(dir, "dist"), 0o755)
+		return []Target{{Key: "app", Dir: dir, Dockerfile: filepath.Join(dir, "Dockerfile"), Ignore: []string{"dist"}}}
+	})
+	h.write(t, "dist/main.js")
+	h.expectNone(t)
+	h.write(t, "src.ts")
+	h.expect(t, "app")
+}
+
 func TestNestedDirCreatedAfterStart(t *testing.T) {
 	h := start(t, "", single)
 	os.MkdirAll(filepath.Join(h.dir, "sub", "deep"), 0o755)

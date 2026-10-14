@@ -24,6 +24,7 @@ func runUp(args []string) error {
 	fs.BoolVar(&o.Refresh, "refresh-infra", false, "force a new terraform plan")
 	fs.BoolVar(&o.NoWatch, "no-watch", false, "start, print the status table and exit")
 	fs.BoolVar(&o.KeepTelemetry, "keep-telemetry", false, "keep App Insights settings")
+	native := fs.Bool("native", false, "run without containers: apps as local processes (func start / run:), Azurite via npx")
 	apps, err := parseFlags(fs, args)
 	if err != nil {
 		return err
@@ -31,7 +32,17 @@ func runUp(args []string) error {
 	o.Apps, o.Version = apps, version
 	ctx, stop := ctrlC()
 	defer stop()
+	if *native {
+		return up.RunNative(ctx, o)
+	}
 	return up.Run(ctx, o)
+}
+
+func runTrust(args []string) error {
+	if len(args) > 0 {
+		return errors.New("usage: azemu trust")
+	}
+	return up.Trust()
 }
 
 func runDown(args []string) error {

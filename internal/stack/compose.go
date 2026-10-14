@@ -143,7 +143,7 @@ func Compose(cfg *config.Config, m *infra.Model, env string, pc *contract.ProxyC
 		Command: []string{"azurite", "--blobHost", "0.0.0.0", "--queueHost", "0.0.0.0", "--tableHost", "0.0.0.0",
 			"--oauth", "basic", "--cert", contract.AzuriteCert, "--key", contract.AzuriteKeyPEM,
 			"--skipApiVersionCheck", "--loose", "--location", "/data"},
-		Environment: map[string]string{"AZURITE_ACCOUNTS": azuriteAccounts(m)},
+		Environment: map[string]string{"AZURITE_ACCOUNTS": AzuriteAccounts(m)},
 		Volumes:     []string{certs, "azurite-data:/data"},
 		Labels:      name("azurite"),
 		Ports: []string{
@@ -208,8 +208,8 @@ func configHash(pc *contract.ProxyConfig) string {
 	return fmt.Sprintf("%x", sha256.Sum256(b))[:16]
 }
 
-// azuriteAccounts builds AZURITE_ACCOUNTS for every storage account plus every app's host storage.
-func azuriteAccounts(m *infra.Model) string {
+// AzuriteAccounts builds AZURITE_ACCOUNTS for every storage account plus every app's host storage.
+func AzuriteAccounts(m *infra.Model) string {
 	set := map[string]bool{}
 	for _, a := range m.StorageAccounts {
 		set[a.Name] = true
